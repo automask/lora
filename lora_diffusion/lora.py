@@ -552,46 +552,47 @@ def parse_safeloras(
     """
     loras = {}
     metadata = safeloras.metadata()
+    if metadata != None: # [!!!] add
 
-    get_name = lambda k: k.split(":")[0]
+        get_name = lambda k: k.split(":")[0]
 
-    keys = list(safeloras.keys())
-    keys.sort(key=get_name)
+        keys = list(safeloras.keys())
+        keys.sort(key=get_name)
 
-    for name, module_keys in groupby(keys, get_name):
-        info = metadata.get(name)
+        for name, module_keys in groupby(keys, get_name):
+            info = metadata.get(name)
 
-        if not info:
-            raise ValueError(
-                f"Tensor {name} has no metadata - is this a Lora safetensor?"
-            )
+            if not info:
+                raise ValueError(
+                    f"Tensor {name} has no metadata - is this a Lora safetensor?"
+                )
 
-        # Skip Textual Inversion embeds
-        if info == EMBED_FLAG:
-            continue
+            # Skip Textual Inversion embeds
+            if info == EMBED_FLAG:
+                continue
 
-        # Handle Loras
-        # Extract the targets
-        target = json.loads(info)
+            # Handle Loras
+            # Extract the targets
+            target = json.loads(info)
 
-        # Build the result lists - Python needs us to preallocate lists to insert into them
-        module_keys = list(module_keys)
-        ranks = [4] * (len(module_keys) // 2)
-        weights = [None] * len(module_keys)
+            # Build the result lists - Python needs us to preallocate lists to insert into them
+            module_keys = list(module_keys)
+            ranks = [4] * (len(module_keys) // 2)
+            weights = [None] * len(module_keys)
 
-        for key in module_keys:
-            # Split the model name and index out of the key
-            _, idx, direction = key.split(":")
-            idx = int(idx)
+            for key in module_keys:
+                # Split the model name and index out of the key
+                _, idx, direction = key.split(":")
+                idx = int(idx)
 
-            # Add the rank
-            ranks[idx] = int(metadata[f"{name}:{idx}:rank"])
+                # Add the rank
+                ranks[idx] = int(metadata[f"{name}:{idx}:rank"])
 
-            # Insert the weight into the list
-            idx = idx * 2 + (1 if direction == "down" else 0)
-            weights[idx] = nn.parameter.Parameter(safeloras.get_tensor(key))
+                # Insert the weight into the list
+                idx = idx * 2 + (1 if direction == "down" else 0)
+                weights[idx] = nn.parameter.Parameter(safeloras.get_tensor(key))
 
-        loras[name] = (weights, ranks, target)
+            loras[name] = (weights, ranks, target)
 
     return loras
 
@@ -606,13 +607,14 @@ def parse_safeloras_embeds(
     embeds = {}
     metadata = safeloras.metadata()
 
-    for key in safeloras.keys():
-        # Only handle Textual Inversion embeds
-        meta = metadata.get(key)
-        if not meta or meta != EMBED_FLAG:
-            continue
+    if metadata != None: # [!!!] add
+        for key in safeloras.keys():
+            # Only handle Textual Inversion embeds
+            meta = metadata.get(key)
+            if not meta or meta != EMBED_FLAG:
+                continue
 
-        embeds[key] = safeloras.get_tensor(key)
+            embeds[key] = safeloras.get_tensor(key)
 
     return embeds
 
@@ -724,7 +726,8 @@ def monkeypatch_or_replace_lora_extended(
         target_replace_module,
         search_class=[nn.Linear, LoraInjectedLinear, nn.Conv2d, LoraInjectedConv2d],
     ):
-
+        _tmp = None # [!!!] add
+        weight = None # [!!!] add
         if (_child_module.__class__ == nn.Linear) or (
             _child_module.__class__ == LoraInjectedLinear
         ):
@@ -779,21 +782,21 @@ def monkeypatch_or_replace_lora_extended(
 
             if bias is not None:
                 _tmp.conv.bias = bias
+        if _tmp != None and weight != None: # [!!!] add
+            # switch the module
+            _module._modules[name] = _tmp
 
-        # switch the module
-        _module._modules[name] = _tmp
+            up_weight = loras.pop(0)
+            down_weight = loras.pop(0)
 
-        up_weight = loras.pop(0)
-        down_weight = loras.pop(0)
+            _module._modules[name].lora_up.weight = nn.Parameter(
+                up_weight.type(weight.dtype)
+            )
+            _module._modules[name].lora_down.weight = nn.Parameter(
+                down_weight.type(weight.dtype)
+            )
 
-        _module._modules[name].lora_up.weight = nn.Parameter(
-            up_weight.type(weight.dtype)
-        )
-        _module._modules[name].lora_down.weight = nn.Parameter(
-            down_weight.type(weight.dtype)
-        )
-
-        _module._modules[name].to(weight.device)
+            _module._modules[name].to(weight.device)
 
 
 def monkeypatch_or_replace_safeloras(models, safeloras):
